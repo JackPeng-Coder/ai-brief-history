@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 Build the PDF book 《人工智能简史：机器如何学会学习》.
-Requires reportlab, pypdfium2 (for preview only).
+Requires reportlab. The OFL fonts listed in README.md must be in fonts/.
+pypdfium2 is only for previewing the generated PDF.
 """
 import os, re, math, random, hashlib
 from datetime import datetime
@@ -38,16 +39,29 @@ PDF_PATH = os.path.join(OUTPUT, "人工智能简史.pdf")
 # ----------------------------------------------------------------------------
 # Fonts
 # ----------------------------------------------------------------------------
-FONT_DIR = r"C:\Windows\Fonts"
+FONT_DIR = os.path.join(ROOT, "fonts")
+REQUIRED_FONTS = [
+    "NotoSerifSC-Regular.ttf",
+    "NotoSerifSC-Bold.ttf",
+    "NotoSansSC-Regular.ttf",
+    "NotoSansSC-Bold.ttf",
+    "LXGWWenKai-Regular.ttf",
+]
+missing_fonts = [f for f in REQUIRED_FONTS if not os.path.exists(os.path.join(FONT_DIR, f))]
+if missing_fonts:
+    raise SystemExit(
+        "Missing font files in fonts/: " + ", ".join(missing_fonts) +
+        "\nDownload the OFL fonts listed in README.md and place them in fonts/."
+    )
+
 def reg(name, file, idx=0):
     pdfmetrics.registerFont(TTFont(name, os.path.join(FONT_DIR, file), subfontIndex=idx))
 
-reg("SS", "simsun.ttc", 0)
-reg("SS-Bold", "simhei.ttf")
-reg("SS-Italic", "simkai.ttf")
-reg("YH", "msyh.ttc", 0)
-reg("YH-Bold", "msyhbd.ttc", 0)
-reg("YH-Light", "msyhl.ttc", 0)
+reg("SS", "NotoSerifSC-Regular.ttf")
+reg("SS-Bold", "NotoSerifSC-Bold.ttf")
+reg("SS-Italic", "LXGWWenKai-Regular.ttf")
+reg("YH", "NotoSansSC-Regular.ttf")
+reg("YH-Bold", "NotoSansSC-Bold.ttf")
 pdfmetrics.registerFontFamily("SS", normal="SS", bold="SS-Bold", italic="SS-Italic", boldItalic="SS-Bold")
 pdfmetrics.registerFontFamily("YH", normal="YH", bold="YH-Bold", italic="YH", boldItalic="YH-Bold")
 
@@ -63,17 +77,16 @@ CONTENT_W = PAGE_W - MARGIN_L - MARGIN_R
 CONTENT_H = PAGE_H - MARGIN_T - MARGIN_B
 
 INK = HexColor("#17324D")
-INK_DARK = HexColor("#0D1B2A")
 INK_LIGHT = HexColor("#2E4A63")
 VERMILION = HexColor("#B23A2E")
-GOLD = HexColor("#B08D57")
+GOLD = HexColor("#A9824E")
 GOLD_LIGHT = HexColor("#D6BC8A")
-PAPER = HexColor("#FBF8F1")
-PAPER_DARK = HexColor("#F3EDE1")
+PAPER = HexColor("#FFFFFF")
+PAPER_DARK = HexColor("#EEF2F6")
 TEXT = HexColor("#1C1C1C")
-GRAY = HexColor("#6F6A61")
-LIGHT_GRAY = HexColor("#A9A297")
-RULE = HexColor("#D8CBB6")
+GRAY = HexColor("#666666")
+LIGHT_GRAY = HexColor("#A0A0A0")
+RULE = HexColor("#D9D9D9")
 
 BOOK_TITLE = "人工智能简史"
 BOOK_SUBTITLE = "机器如何学会学习"
@@ -244,7 +257,7 @@ rpara.ALL_CANNOT_START = "".join(CANNOT_START)
 # Styles
 # ----------------------------------------------------------------------------
 def style(name, **kw):
-    base = dict(fontName="SS", fontSize=10.5, leading=18.6, textColor=TEXT,
+    base = dict(fontName="SS", fontSize=10.5, leading=18.4, textColor=TEXT,
                 wordWrap="CJK", allowWidows=0, allowOrphans=0)
     base.update(kw)
     return ParagraphStyle(name, **base)
@@ -253,7 +266,7 @@ S = {
     "body": style("Body", alignment=TA_LEFT, firstLineIndent=21, spaceAfter=3.2),
     "body_noindent": style("BodyNoIndent", alignment=TA_LEFT, firstLineIndent=0, spaceAfter=3.2),
     "body_small": style("BodySmall", fontSize=9.2, leading=16.2, alignment=TA_LEFT, firstLineIndent=18, textColor=HexColor("#33302A")),
-    "lead": style("Lead", fontName="SS-Italic", fontSize=10.2, leading=17.5, textColor=HexColor("#4A4438"), alignment=TA_LEFT, firstLineIndent=0, spaceAfter=10),
+    "lead": style("Lead", fontName="SS-Italic", fontSize=10.2, leading=17.5, textColor=INK_LIGHT, alignment=TA_LEFT, firstLineIndent=0, spaceAfter=10),
     "h2": style("H2", fontName="YH-Bold", fontSize=15, leading=23, textColor=INK, spaceBefore=16, spaceAfter=8, firstLineIndent=0, keepWithNext=1),
     "h3": style("H3", fontName="YH-Bold", fontSize=11.2, leading=18, textColor=VERMILION, spaceBefore=10, spaceAfter=3, firstLineIndent=0, keepWithNext=1),
     "quote": style("Quote", fontName="SS-Italic", fontSize=10.0, leading=17.2, textColor=HexColor("#5B4A3A"), alignment=TA_LEFT, firstLineIndent=0, leftIndent=10, rightIndent=6),
@@ -262,7 +275,7 @@ S = {
     "note_body": style("NoteBody", fontSize=9.2, leading=16.0, alignment=TA_LEFT, firstLineIndent=0, textColor=HexColor("#2C2A25")),
     "note_item": style("NoteItem", fontSize=9.2, leading=16.0, alignment=TA_LEFT, firstLineIndent=0, leftIndent=16, bulletIndent=2, bulletFontName="SS", textColor=HexColor("#2C2A25"), spaceAfter=1),
     "table": style("Table", fontSize=8.3, leading=13.2, alignment=TA_LEFT, firstLineIndent=0),
-    "table_head": style("TableHead", fontName="YH-Bold", fontSize=8.4, leading=13.2, textColor=PAPER, alignment=TA_LEFT, firstLineIndent=0),
+    "table_head": style("TableHead", fontName="YH-Bold", fontSize=8.4, leading=13.2, textColor=INK, alignment=TA_LEFT, firstLineIndent=0),
     "toc_title": style("TOCTitle", fontName="YH-Bold", fontSize=26, leading=34, textColor=INK, alignment=TA_LEFT, firstLineIndent=0),
     "toc_part": style("TOCPart", fontName="YH-Bold", fontSize=11.5, leading=21, textColor=INK, firstLineIndent=0, spaceBefore=9, spaceAfter=2, wordWrap="CJK"),
     "toc_chapter": style("TOCChapter", fontName="SS", fontSize=10.3, leading=18.2, textColor=TEXT, firstLineIndent=0, leftIndent=12, wordWrap="CJK"),
@@ -312,11 +325,6 @@ def join_lines(lines):
         else:
             out += " " + nxt
     return out
-
-def blend(c1, c2, t):
-    return Color(c1.red + (c2.red - c1.red) * t,
-                 c1.green + (c2.green - c1.green) * t,
-                 c1.blue + (c2.blue - c1.blue) * t)
 
 def draw_wrapped(canv, text, x, y_top, width, font="SS", size=9.5, leading=16,
                  color=TEXT, align="left"):
@@ -410,8 +418,8 @@ class NoteBox(Flowable):
     def draw(self):
         c = self.canv
         c.saveState()
-        c.setFillColor(HexColor("#F4EEE1"))
-        c.setStrokeColor(HexColor("#DCCCB0"))
+        c.setFillColor(HexColor("#F7F7F7"))
+        c.setStrokeColor(HexColor("#DDDDDD"))
         c.setLineWidth(0.5)
         c.roundRect(0, 0, self.width, self.height, 2 * mm, fill=1, stroke=1)
         c.setFillColor(GOLD)
@@ -471,7 +479,7 @@ class ChapterOpener(Flowable):
             long_title = stringWidth(self.title, "YH-Bold", 26) > 100 * mm
             size = 58 if long_title else 96
             y = self.height - (8 * mm if long_title else 22 * mm)
-            c.setFillColor(HexColor("#EDE5D6"))
+            c.setFillColor(HexColor("#F0F0F0"))
             c.setFont("YH-Bold", size)
             c.drawRightString(self.width, y, num)
         c.restoreState()
@@ -504,9 +512,9 @@ class ChapterOpener(Flowable):
         c.setLineWidth(0.8)
         c.line(0, ty - 5 * mm, 34 * mm, ty - 5 * mm)
         # lead
-        c.setFillColor(HexColor("#4A4438"))
+        c.setFillColor(HexColor("#444444"))
         draw_wrapped(c, self.lead, 0, ty - 11 * mm, self.width - 10 * mm,
-                     font="SS", size=9.3, leading=16, color=HexColor("#4A4438"))
+                     font="SS", size=9.3, leading=16, color=HexColor("#444444"))
         c.restoreState()
 
 class PartDivider(Flowable):
@@ -531,45 +539,40 @@ class PartDivider(Flowable):
     def draw(self):
         c = self.canv
         c.saveState()
-        # background gradient
-        steps = 240
-        for i in range(steps):
-            t = i / (steps - 1)
-            c.setFillColor(blend(INK_DARK, INK, t))
-            c.rect(0, PAGE_H * t, PAGE_W, PAGE_H / steps + 1, fill=1, stroke=0)
+        # white background
+        c.setFillColor(PAPER)
+        c.rect(0, 0, PAGE_W, PAGE_H, fill=1, stroke=0)
         # huge number
-        c.setFillColor(Color(1, 1, 1, alpha=0.04))
+        c.setFillColor(HexColor("#F2F2F2"))
         c.setFont("YH-Bold", 110)
         c.drawRightString(PAGE_W - 14 * mm, PAGE_H - 52 * mm, self.display_num)
         # top label
-        c.setFillColor(GOLD_LIGHT)
+        c.setFillColor(VERMILION)
         c.setFont("YH-Bold", 10)
         c.drawString(22 * mm, PAGE_H - 38 * mm, self.part_label, charSpace=4)
         c.setStrokeColor(GOLD)
         c.setLineWidth(0.6)
         c.line(22 * mm, PAGE_H - 44 * mm, 58 * mm, PAGE_H - 44 * mm)
         # title
-        c.setFillColor(PAPER)
+        c.setFillColor(INK)
         c.setFont("YH-Bold", 34)
         c.drawString(22 * mm, PAGE_H - 72 * mm, self.title)
-        c.setFillColor(GOLD_LIGHT)
+        c.setFillColor(GRAY)
         c.setFont("SS", 12)
         c.drawString(22 * mm, PAGE_H - 84 * mm, self.years)
         # epigraph
-        c.setFillColor(Color(1, 1, 1, alpha=0.85))
         y = draw_wrapped(c, self.epigraph, 22 * mm, PAGE_H - 116 * mm, PAGE_W - 44 * mm,
-                         font="SS-Italic", size=12, leading=22, color=Color(1, 1, 1, alpha=0.88))
+                         font="SS-Italic", size=12, leading=22, color=INK_LIGHT)
         source_y = max(64 * mm, y - 4 * mm)
-        c.setFillColor(GOLD_LIGHT)
+        c.setFillColor(GRAY)
         c.setFont("SS", 8.5)
         c.drawString(22 * mm, source_y, self.source)
         # intro
         intro_y = 60 * mm if source_y >= 70 * mm else max(30 * mm, source_y - 10 * mm)
-        c.setFillColor(Color(1, 1, 1, alpha=0.72))
         draw_wrapped(c, self.intro, 22 * mm, intro_y, PAGE_W - 50 * mm,
-                     font="SS", size=9.5, leading=17, color=Color(1, 1, 1, alpha=0.75))
+                     font="SS", size=9.5, leading=17, color=GRAY)
         # footer mark
-        c.setFillColor(GOLD)
+        c.setFillColor(LIGHT_GRAY)
         c.setFont("YH", 8)
         c.drawString(22 * mm, 20 * mm, "人工智能简史 · " + ("附录" if self.num == "附" else f"第{self.num}部"))
         c.restoreState()
@@ -604,7 +607,7 @@ class AppendixHeading(Flowable):
 # Figures (vector)
 # ----------------------------------------------------------------------------
 def _frame(c, w, h):
-    c.setFillColor(HexColor("#F8F4EA"))
+    c.setFillColor(PAPER)
     c.setStrokeColor(RULE)
     c.setLineWidth(0.5)
     c.roundRect(0, 0, w, h, 1.5 * mm, fill=1, stroke=1)
@@ -651,7 +654,7 @@ def fig_turing(c, w, h):
     x0 = 30
     for i in range(9):
         x = x0 + i * cell
-        c.setFillColor(PAPER if i % 2 == 0 else HexColor("#EFE7D8"))
+        c.setFillColor(PAPER if i % 2 == 0 else HexColor("#F2F2F2"))
         c.setStrokeColor(RULE)
         c.setLineWidth(0.6)
         c.rect(x, tape_y, cell, 20, fill=1, stroke=1)
@@ -956,7 +959,7 @@ def draw_paper(c, doc):
     c.setFillColor(PAPER)
     c.rect(0, 0, PAGE_W, PAGE_H, fill=1, stroke=0)
     # subtle top rule
-    c.setStrokeColor(HexColor("#E7DECD"))
+    c.setStrokeColor(HexColor("#E5E5E5"))
     c.setLineWidth(0.4)
     c.line(0, PAGE_H - 8 * mm, PAGE_W, PAGE_H - 8 * mm)
     c.restoreState()
@@ -967,7 +970,7 @@ def draw_front_footer(c, doc):
         return
     c.saveState()
     c.setFont("SS", 9)
-    c.setFillColor(HexColor("#8A8378"))
+    c.setFillColor(HexColor("#777777"))
     c.drawCentredString(PAGE_W / 2, 11 * mm, str(page))
     c.restoreState()
 
@@ -976,42 +979,32 @@ def draw_body_footer(c, doc):
     c.saveState()
     if page != doc.chapter_start_page:
         c.setFont("YH", 8)
-        c.setFillColor(HexColor("#4F4A42"))
+        c.setFillColor(HexColor("#555555"))
         if page % 2 == 0:
             header = BOOK_TITLE
             c.drawString(MARGIN_L, PAGE_H - 13.5 * mm, header)
         else:
             header = doc.current_chapter
             c.drawRightString(PAGE_W - MARGIN_R, PAGE_H - 13.5 * mm, header)
-        c.setStrokeColor(HexColor("#E3D9C7"))
+        c.setStrokeColor(HexColor("#DDDDDD"))
         c.setLineWidth(0.4)
         c.line(MARGIN_L, PAGE_H - 16 * mm, PAGE_W - MARGIN_R, PAGE_H - 16 * mm)
     c.setFont("SS", 9)
-    c.setFillColor(HexColor("#8A8378"))
+    c.setFillColor(HexColor("#777777"))
     c.drawCentredString(PAGE_W / 2, 11 * mm, str(page))
     c.restoreState()
 
 def draw_cover(c, doc):
     c.saveState()
-    # gradient background
-    steps = 400
-    for i in range(steps):
-        t = i / (steps - 1)
-        c.setFillColor(blend(HexColor("#08131E"), HexColor("#1B3550"), t))
-        c.rect(0, PAGE_H * t, PAGE_W, PAGE_H / steps + 1, fill=1, stroke=0)
-    # fine grain
-    random.seed(11)
-    for _ in range(900):
-        x = random.random() * PAGE_W
-        y = random.random() * PAGE_H
-        c.setFillColor(Color(1, 1, 1, alpha=random.uniform(0.015, 0.05)))
-        c.circle(x, y, random.uniform(0.2, 0.7), fill=1, stroke=0)
-    # ring constellation
-    cx, cy, r = PAGE_W * 0.72, PAGE_H * 0.70, 37 * mm
-    c.setStrokeColor(Color(GOLD.red, GOLD.green, GOLD.blue, alpha=0.75))
+    # pure white background
+    c.setFillColor(PAPER)
+    c.rect(0, 0, PAGE_W, PAGE_H, fill=1, stroke=0)
+    # ring constellation, moved clear of the title for print legibility
+    cx, cy, r = PAGE_W * 0.76, PAGE_H * 0.86, 22 * mm
+    c.setStrokeColor(HexColor("#C9B18A"))
     c.setLineWidth(0.7)
     c.circle(cx, cy, r, fill=0, stroke=1)
-    c.setStrokeColor(Color(GOLD_LIGHT.red, GOLD_LIGHT.green, GOLD_LIGHT.blue, alpha=0.35))
+    c.setStrokeColor(HexColor("#E5DED2"))
     c.setLineWidth(0.5)
     c.circle(cx, cy, r * 0.78, fill=0, stroke=1)
     c.circle(cx, cy, r * 0.52, fill=0, stroke=1)
@@ -1020,91 +1013,96 @@ def draw_cover(c, doc):
         a = k * math.pi * 2 / 48
         r1 = r * (0.80 if k % 4 else 0.72)
         r2 = r * (0.95 if k % 4 else 1.0)
-        c.setStrokeColor(Color(GOLD_LIGHT.red, GOLD_LIGHT.green, GOLD_LIGHT.blue, alpha=0.25 + 0.35 * (k % 4 == 0)))
-        c.setLineWidth(0.5 if k % 4 else 0.9)
+        c.setStrokeColor(HexColor("#C9B18A"))
+        c.setLineWidth(0.5 if k % 4 else 0.8)
         c.line(cx + r1 * math.cos(a), cy + r1 * math.sin(a), cx + r2 * math.cos(a), cy + r2 * math.sin(a))
     # constellation inside
     random.seed(23)
     pts = []
-    for _ in range(26):
+    for _ in range(20):
         a = random.random() * math.pi * 2
         rr = random.random() * r * 0.65
         pts.append((cx + rr * math.cos(a), cy + rr * math.sin(a)))
     for i in range(len(pts)):
         for j in range(i + 1, len(pts)):
-            if math.hypot(pts[i][0] - pts[j][0], pts[i][1] - pts[j][1]) < 24 * mm:
-                c.setStrokeColor(Color(GOLD_LIGHT.red, GOLD_LIGHT.green, GOLD_LIGHT.blue, alpha=0.13))
+            if math.hypot(pts[i][0] - pts[j][0], pts[i][1] - pts[j][1]) < 18 * mm:
+                c.setStrokeColor(HexColor("#DDD6C9"))
                 c.setLineWidth(0.35)
                 c.line(pts[i][0], pts[i][1], pts[j][0], pts[j][1])
     for x, y in pts:
-        c.setFillColor(Color(GOLD_LIGHT.red, GOLD_LIGHT.green, GOLD_LIGHT.blue, alpha=0.55))
+        c.setFillColor(HexColor("#A9824E"))
         c.circle(x, y, 0.9, fill=1, stroke=0)
     # horizon line
-    c.setStrokeColor(Color(VERMILION.red, VERMILION.green, VERMILION.blue, alpha=0.95))
-    c.setLineWidth(1.2)
+    c.setStrokeColor(VERMILION)
+    c.setLineWidth(0.9)
     c.line(0, PAGE_H * 0.305, PAGE_W, PAGE_H * 0.305)
     # left vertical rule
-    c.setStrokeColor(Color(GOLD.red, GOLD.green, GOLD.blue, alpha=0.55))
+    c.setStrokeColor(GOLD)
     c.setLineWidth(0.6)
     c.line(18 * mm, 24 * mm, 18 * mm, PAGE_H - 24 * mm)
     # title
-    c.setFillColor(PAPER)
+    c.setFillColor(INK)
     c.setFont("YH-Bold", 37)
     c.drawString(24 * mm, PAGE_H - 72 * mm, "人工智能简史")
-    c.setFillColor(GOLD_LIGHT)
+    c.setFillColor(VERMILION)
     c.setFont("SS-Italic", 16)
     c.drawString(24 * mm, PAGE_H - 88 * mm, "机器如何学会学习")
-    c.setFillColor(Color(1, 1, 1, alpha=0.55))
+    c.setFillColor(GRAY)
     c.setFont("YH", 7.2)
     c.drawString(24 * mm, PAGE_H - 100 * mm, "A BRIEF HISTORY OF ARTIFICIAL INTELLIGENCE", charSpace=1.4)
     # small vertical line + text
-    c.setFillColor(Color(1, 1, 1, alpha=0.62))
+    c.setFillColor(GRAY)
     c.setFont("SS", 8.5)
     c.drawString(24 * mm, PAGE_H - 122 * mm, "从达特茅斯的夏天，到智能体的黎明")
     # bottom
-    c.setFillColor(Color(1, 1, 1, alpha=0.75))
+    c.setFillColor(GRAY)
     c.setFont("YH", 9)
     c.drawString(24 * mm, 26 * mm, AUTHOR)
-    c.setFillColor(Color(1, 1, 1, alpha=0.45))
+    c.setFillColor(LIGHT_GRAY)
     c.setFont("YH", 7)
     c.drawString(24 * mm, 20 * mm, "OPEN SOURCE EDITION · 2026")
     c.restoreState()
 
 def draw_back(c, doc):
     c.saveState()
-    steps = 80
-    for i in range(steps):
-        t = i / (steps - 1)
-        c.setFillColor(blend(HexColor("#08131E"), HexColor("#152C42"), t))
-        c.rect(0, PAGE_H * t, PAGE_W, PAGE_H / steps + 1, fill=1, stroke=0)
-    c.setFillColor(GOLD)
+    # pure white background
+    c.setFillColor(PAPER)
+    c.rect(0, 0, PAGE_W, PAGE_H, fill=1, stroke=0)
+    # small ring echo, clear of the text block
+    cx, cy, r = PAGE_W * 0.82, PAGE_H * 0.86, 18 * mm
+    c.setStrokeColor(HexColor("#E5DED2"))
+    c.setLineWidth(0.5)
+    c.circle(cx, cy, r, fill=0, stroke=1)
+    c.setStrokeColor(HexColor("#C9B18A"))
+    c.setLineWidth(0.5)
+    c.circle(cx, cy, r * 0.70, fill=0, stroke=1)
+    c.setFillColor(VERMILION)
     c.setFont("YH-Bold", 9)
     c.drawString(22 * mm, PAGE_H - 40 * mm, "人工智能简史", charSpace=2.5)
-    c.setFillColor(PAPER)
+    c.setFillColor(INK)
     c.setFont("YH-Bold", 19)
     c.drawString(22 * mm, PAGE_H - 58 * mm, "机器如何学会学习")
-    c.setFillColor(GOLD_LIGHT)
+    c.setFillColor(GRAY)
     c.setFont("SS-Italic", 12)
     c.drawString(22 * mm, PAGE_H - 72 * mm, "A BRIEF HISTORY OF ARTIFICIAL INTELLIGENCE")
     # blurb
-    c.setFillColor(Color(1, 1, 1, alpha=0.82))
     blurb = ("从图灵之问到 ChatGPT，从符号主义到深度学习，从专家系统到智能体——"
              "这是一部关于机器如何学会学习的历史，也是一部关于野心、失败、资本与选择的故事。"
              "它不预测终点，只提供更好的问题。")
     draw_wrapped(c, blurb, 22 * mm, PAGE_H - 98 * mm, PAGE_W - 44 * mm,
-                 font="SS", size=10.2, leading=19, color=Color(1, 1, 1, alpha=0.85))
+                 font="SS", size=10.2, leading=19, color=TEXT)
     # quote
     c.setStrokeColor(VERMILION)
-    c.setLineWidth(1.4)
+    c.setLineWidth(1.2)
     c.line(22 * mm, PAGE_H - 150 * mm, 38 * mm, PAGE_H - 150 * mm)
     draw_wrapped(c, "“我们只能看到前方很短的距离，\n但我们可以看到，那里有很多事情需要去做。”",
                  22 * mm, PAGE_H - 160 * mm, PAGE_W - 44 * mm,
-                 font="SS-Italic", size=10.5, leading=20, color=GOLD_LIGHT)
-    c.setFillColor(Color(1, 1, 1, alpha=0.55))
+                 font="SS-Italic", size=10.5, leading=20, color=INK_LIGHT)
+    c.setFillColor(GRAY)
     c.setFont("SS", 8.5)
     c.drawString(22 * mm, PAGE_H - 200 * mm, "——艾伦·图灵，1950")
     # repo
-    c.setFillColor(Color(1, 1, 1, alpha=0.6))
+    c.setFillColor(GRAY)
     c.setFont("YH", 8)
     c.drawString(22 * mm, 28 * mm, "github.com/JackPeng-Coder/ai-brief-history")
     c.drawString(22 * mm, 22 * mm, "CC BY-NC-SA 4.0 · 非卖品 · 2026")
@@ -1232,7 +1230,7 @@ def make_table(rows, col_widths=None):
     compact = len(body) >= 20
     fs = 7.9 if compact else 8.3
     lead = 12.0 if compact else 13.2
-    pad = 3 if compact else 4
+    pad = 2.5 if compact else 4
     head_style = ParagraphStyle("TableHeadLocal", parent=S["table_head"], fontSize=fs + 0.1, leading=lead)
     body_style = ParagraphStyle("TableBodyLocal", parent=S["table"], fontSize=fs, leading=lead)
     table_data = [[Paragraph(inline(c), head_style) for c in header]]
@@ -1240,8 +1238,8 @@ def make_table(rows, col_widths=None):
         table_data.append([Paragraph(inline(c), body_style) for c in r])
     t = LongTable(table_data, colWidths=col_widths, repeatRows=1, hAlign="LEFT")
     t.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), INK),
-        ("TEXTCOLOR", (0, 0), (-1, 0), PAPER),
+        ("BACKGROUND", (0, 0), (-1, 0), PAPER_DARK),
+        ("TEXTCOLOR", (0, 0), (-1, 0), INK),
         ("FONTNAME", (0, 0), (-1, 0), "YH-Bold"),
         ("FONTNAME", (0, 1), (-1, -1), "SS"),
         ("FONTSIZE", (0, 0), (-1, -1), fs),
@@ -1251,7 +1249,7 @@ def make_table(rows, col_widths=None):
         ("BOTTOMPADDING", (0, 0), (-1, -1), pad),
         ("LEFTPADDING", (0, 0), (-1, -1), 5),
         ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [PAPER, HexColor("#F6F0E4")]),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [PAPER, HexColor("#F7F7F7")]),
         ("GRID", (0, 0), (-1, -1), 0.35, RULE),
     ]))
     if header and header[0] == "模型":
@@ -1421,7 +1419,7 @@ def front_matter():
     out.append(PageBreak())
     # epigraph
     out.append(Spacer(1, 72 * mm))
-    out.append(Paragraph("“我们只能看到前方很短的距离，但我们可以看到，那里有很多事情需要去做。”", ParagraphStyle("ep", fontName="SS-Italic", fontSize=14, leading=26, textColor=HexColor("#3F3A31"), alignment=TA_CENTER)))
+    out.append(Paragraph("“我们只能看到前方很短的距离，但我们可以看到，那里有很多事情需要去做。”", ParagraphStyle("ep", fontName="SS-Italic", fontSize=14, leading=26, textColor=INK_LIGHT, alignment=TA_CENTER)))
     out.append(Spacer(1, 6 * mm))
     out.append(Paragraph("——艾伦·图灵，《计算机器与智能》，1950", S["front_small"]))
     out.append(PageBreak())

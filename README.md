@@ -66,6 +66,7 @@ ai-brief-history/
 ├─ content/                 # 正文 Markdown 源文件（序章、13 章、尾声、附录）
 ├─ build/
 │  └─ make_book.py          # 排版脚本：Markdown → PDF（ReportLab）
+├─ fonts/                   # 构建所需 OFL 字体（约 73 MB，不随仓库提交）
 ├─ assets/
 │  └─ cover.png             # 封面渲染图
 ├─ output/
@@ -89,7 +90,12 @@ python build/make_book.py
 
 说明：
 
-- 需要 Windows 中文字体：宋体（SimSun）、黑体（SimHei）、楷体（KaiTi）、微软雅黑（Microsoft YaHei）。
+- 构建使用 `fonts/` 下的开源字体，不再依赖 Windows 系统字体，需要以下 5 个文件：
+  - `NotoSerifSC-Regular.ttf`、`NotoSerifSC-Bold.ttf`
+  - `NotoSansSC-Regular.ttf`、`NotoSansSC-Bold.ttf`
+  - `LXGWWenKai-Regular.ttf`
+- 字体文件不随仓库提交（约 73 MB），可从 [Noto CJK](https://github.com/notofonts/noto-cjk)、[霞鹜文楷](https://github.com/lxgw/LxgwWenKai) 获取；缺失时构建会直接报错并列出文件名。
+- 版面采用纯白背景和浅色封面、封底、部扉页，减少大面积油墨，适合普通纸张印刷。
 - 脚本会自动生成封面、四部扉页、章扉页、目录、页眉页脚、矢量插图和 PDF 书签。
 - 输出的 PDF 位于 `output/人工智能简史.pdf`。
 
@@ -101,7 +107,7 @@ python build/make_book.py
 
 - **文本**：采用 [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) 许可协议。你可以自由复制、分发、改编，但需注明出处、不得用于商业目的，并以相同许可分享。
 - **代码**：采用 MIT 许可协议，详见 `LICENSE-CODE`。
-- **字体**：PDF 中嵌入的中文字体（宋体、黑体、楷体、微软雅黑）版权归各自所有者，仅用于本书排版。
+- **字体**：PDF 中嵌入的思源宋体（Noto Serif SC）、思源黑体（Noto Sans SC）、霞鹜文楷（LXGW WenKai）均采用 SIL OFL 1.1 授权；字体文件不随仓库提交，PDF 中为嵌入子集。
 - **声明**：本书由 AI 辅助完成资料整理、结构讨论、初稿生成和文字润色，经人工审校、编辑和排版。资料截至 2026 年 11 月；2024 年之后的事件变化很快，书中的描述是“截至写作时”的快照，不构成投资、法律或政策建议。
 - **反馈**：欢迎通过 GitHub issue 指出事实错误、引文不准或表述不当。
 

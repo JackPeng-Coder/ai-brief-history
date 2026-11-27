@@ -18,7 +18,7 @@ output/v4-*.png
 output/v5-*.png
 output/sheet-*.png
 
-# Fonts downloaded for experiments (not required; system fonts are used)
+# Build fonts (required; not committed, see README)
 fonts/
 
 # Temporary test scripts
