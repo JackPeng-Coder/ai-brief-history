@@ -1,0 +1,20 @@
+本书《人工智能简史：机器如何学会学习》采用 Creative Commons
+Attribution-NonCommercial-ShareAlike 4.0 International（CC BY-NC-SA 4.0）
+许可协议发布。
+
+你可以自由地：
+- 共享：以任何媒介或格式复制、发行本书；
+- 改编：重新混合、转换、以本书为基础进行创作。
+
+但需遵守以下条件：
+- 署名：必须注明作者、出处，并提供许可协议链接；
+- 非商业性使用：不得将本书用于商业目的；
+- 相同方式共享：若改编本书，必须以相同的许可协议分发改编作品。
+
+完整许可协议见：
+https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode
+
+书中的代码与排版脚本（build/ 目录下的 .py 文件）采用 MIT 许可，
+详见 LICENSE-CODE。
+
+Copyright (c) 2026 ai-brief-history contributors.

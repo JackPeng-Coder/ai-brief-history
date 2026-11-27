@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+build/__pycache__/
+
+# Build previews (keep the final PDF)
+output/*.png
+output/font-test.pdf
+output/wrap*.pdf
+output/meta.txt
+output/page-*.png
+output/fresh-*.png
+output/final*.png
+output/check-*.png
+output/v2-*.png
+output/v3-*.png
+output/v4-*.png
+output/v5-*.png
+output/sheet-*.png
+
+# Fonts downloaded for experiments (not required; system fonts are used)
+fonts/
+
+# Temporary test scripts
+build/test_*.py
+build/font_test.py
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
