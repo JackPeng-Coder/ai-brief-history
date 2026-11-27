@@ -90,7 +90,7 @@ CANNOT_END = set(CANNOT_END_LINE[0] + CANNOT_END_LINE[1])
 CANNOT_END |= set("（《「『【〔〈“‘")
 
 def _tokens(text):
-    """Split into CJK single chars and Latin words, so Latin words stay intact."""
+    """Split into CJK single chars and Latin words; keep numbers and units together."""
     out = []
     buf = ""
     for ch in text:
@@ -110,10 +110,18 @@ def _tokens(text):
             out.append(ch)
     if buf:
         out.append(buf)
-    return out
+    # Merge "1956" + "年", "90" + "%", "2.2" + "万" so they do not split across lines.
+    merged = []
+    for tok in out:
+        if (merged and re.fullmatch(r"[0-9][0-9.,%^]*", merged[-1])
+                and tok in ("年", "月", "日", "万", "亿", "%", "％")):
+            merged[-1] += tok
+        else:
+            merged.append(tok)
+    return merged
 
 def _cjk_split(frags, maxWidths, calcBounds, encoding="utf8"):
-    """Greedy CJK line breaker with basic kinsoku rules. Adapted from ReportLab."""
+    """Greedy CJK line breaker with kinsoku and correct overflow handling."""
     U = []
     for f in frags:
         text = f.text
@@ -123,59 +131,90 @@ def _cjk_split(frags, maxWidths, calcBounds, encoding="utf8"):
             U.extend([rpara.cjkU(t, f, encoding) for t in _tokens(text)])
         else:
             U.append(rpara.cjkU(text, f, encoding))
-    lines = []
-    i = width_used = line_start = 0
-    max_width = maxWidths[0]
-    n = len(U)
-    while line_start < n and U[line_start] == " ":
-        line_start += 1
-    i = line_start
-    while i < n:
-        u = U[i]
-        i += 1
-        w = u.width
-        if hasattr(w, "normalizedValue"):
-            w._normalizer = max_width
-            w = w.normalizedValue(max_width)
-        width_used += w
-        line_break = hasattr(u.frag, "lineBreak")
-        end_line = (width_used > max_width + _FUZZ and width_used > 0) or line_break
-        if end_line:
-            if not line_break:
-                # If a Latin word overflows, backtrack to the last space.
-                if len(u) > 1 and any(ch.isalnum() for ch in u):
-                    for j in range(i - 1, line_start, -1):
-                        if U[j] == " ":
-                            i = j + 1
-                            break
-                # If the next token is closing punctuation, break earlier so it
-                # does not start the next line.
-                guard = 0
-                while i > line_start + 1 and i < n and U[i] in CANNOT_START and guard < 30:
-                    i -= 1
-                    guard += 1
-                # If the last token is opening punctuation, move it to next line.
-                guard = 0
-                while i > line_start + 1 and U[i - 1] in CANNOT_END and guard < 30:
-                    i -= 1
-                    guard += 1
 
-            line_width = sum(U[j].width for j in range(line_start, i))
-            extra = max_width - line_width
-            lines.append(rpara.makeCJKParaLine(U[line_start:i], max_width, line_width, extra,
-                                               line_break, calcBounds))
-            try:
-                max_width = maxWidths[len(lines)]
-            except IndexError:
-                max_width = maxWidths[-1]
-            line_start = i
-            while line_start < n and U[line_start] == " ":
-                line_start += 1
-            i = line_start
-            width_used = 0
-    if width_used > 0:
-        line_width = sum(U[j].width for j in range(line_start, n))
-        lines.append(rpara.makeCJKParaLine(U[line_start:n], max_width, line_width,
+    if not U:
+        return rpara.ParaLines(kind=1, lines=[])
+
+    # Split a single token that is wider than the line (rare, e.g. a long URL).
+    first_width = maxWidths[0] if isinstance(maxWidths, (list, tuple)) else maxWidths
+    expanded = []
+    for tok in U:
+        if len(tok) > 1 and tok.width > first_width:
+            expanded.extend(rpara.cjkU(ch, tok.frag, encoding) for ch in tok)
+        else:
+            expanded.append(tok)
+    U = expanded
+    n = len(U)
+
+    ranges = []
+    i = 0
+    while i < n:
+        while i < n and U[i] == " ":
+            i += 1
+        if i >= n:
+            break
+        line_start = i
+        max_width = maxWidths[min(len(ranges), len(maxWidths) - 1)] if isinstance(maxWidths, (list, tuple)) else maxWidths
+        width = 0
+        while i < n:
+            tok = U[i]
+            w = tok.width
+            if hasattr(w, "normalizedValue"):
+                w._normalizer = max_width
+                w = w.normalizedValue(max_width)
+            # The token that would overflow is NOT included in this line.
+            if width + w > max_width + _FUZZ and i > line_start:
+                break
+            width += w
+            i += 1
+            if hasattr(tok.frag, "lineBreak"):
+                break
+
+        j = i
+        if j <= line_start:
+            j = line_start + 1
+        # If the next token is closing punctuation, break earlier so it does
+        # not start the next line.
+        guard = 0
+        while j > line_start + 1 and j < n and U[j] in CANNOT_START and guard < 30:
+            j -= 1
+            guard += 1
+        # If the last token is opening punctuation, move it to the next line.
+        guard = 0
+        while j > line_start + 1 and U[j - 1] in CANNOT_END and guard < 30:
+            j -= 1
+            guard += 1
+        if j <= line_start:
+            j = line_start + 1
+        ranges.append((line_start, j))
+        i = j
+
+    # Avoid a last line containing only one or two CJK characters.
+    def cjk_count(a, b):
+        return sum(1 for k in range(a, b) if len(U[k]) == 1 and ord(U[k]) >= 0x2E80)
+
+    if len(ranges) >= 2:
+        s, e = ranges[-1]
+        ps, pe = ranges[-2]
+        if cjk_count(s, e) <= 2 and cjk_count(ps, pe) >= 4:
+            new_pe = pe - 1
+            guard = 0
+            while new_pe > ps + 1 and U[new_pe] in CANNOT_START and guard < 10:
+                new_pe -= 1
+                guard += 1
+            guard = 0
+            while new_pe > ps + 1 and U[new_pe - 1] in CANNOT_END and guard < 10:
+                new_pe -= 1
+                guard += 1
+            if new_pe > ps:
+                ranges[-2] = (ps, new_pe)
+                ranges[-1] = (new_pe, e)
+
+    lines = []
+    for idx, (s, e) in enumerate(ranges):
+        max_width = maxWidths[min(idx, len(maxWidths) - 1)] if isinstance(maxWidths, (list, tuple)) else maxWidths
+        line_width = sum(U[k].width for k in range(s, e))
+        lines.append(rpara.makeCJKParaLine(U[s:e], max_width, line_width,
                                            max_width - line_width, False, calcBounds))
     return rpara.ParaLines(kind=1, lines=lines)
 
@@ -221,7 +260,7 @@ S = {
     "caption": style("Caption", fontName="YH", fontSize=8.2, leading=12, textColor=GRAY, alignment=TA_CENTER, firstLineIndent=0, spaceBefore=3, spaceAfter=10),
     "note_title": style("NoteTitle", fontName="YH-Bold", fontSize=9.4, leading=14, textColor=INK, firstLineIndent=0, spaceAfter=3),
     "note_body": style("NoteBody", fontSize=9.2, leading=16.0, alignment=TA_LEFT, firstLineIndent=0, textColor=HexColor("#2C2A25")),
-    "note_item": style("NoteItem", fontSize=9.2, leading=16.0, alignment=TA_LEFT, firstLineIndent=0, leftIndent=16, bulletIndent=2, textColor=HexColor("#2C2A25"), spaceAfter=1),
+    "note_item": style("NoteItem", fontSize=9.2, leading=16.0, alignment=TA_LEFT, firstLineIndent=0, leftIndent=16, bulletIndent=2, bulletFontName="SS", textColor=HexColor("#2C2A25"), spaceAfter=1),
     "table": style("Table", fontSize=8.3, leading=13.2, alignment=TA_LEFT, firstLineIndent=0),
     "table_head": style("TableHead", fontName="YH-Bold", fontSize=8.4, leading=13.2, textColor=PAPER, alignment=TA_LEFT, firstLineIndent=0),
     "toc_title": style("TOCTitle", fontName="YH-Bold", fontSize=26, leading=34, textColor=INK, alignment=TA_LEFT, firstLineIndent=0),
@@ -231,8 +270,8 @@ S = {
     "front_title": style("FrontTitle", fontName="YH-Bold", fontSize=30, leading=42, textColor=INK, alignment=TA_CENTER, firstLineIndent=0),
     "front_sub": style("FrontSub", fontName="SS-Italic", fontSize=13, leading=22, textColor=GRAY, alignment=TA_CENTER, firstLineIndent=0),
     "front_small": style("FrontSmall", fontName="YH", fontSize=8.5, leading=14, textColor=GRAY, alignment=TA_CENTER, firstLineIndent=0),
-    "bullet": style("Bullet", alignment=TA_LEFT, firstLineIndent=0, leftIndent=18, bulletIndent=4, spaceAfter=2),
-    "number": style("Number", alignment=TA_LEFT, firstLineIndent=0, leftIndent=22, bulletIndent=4, spaceAfter=3),
+    "bullet": style("Bullet", alignment=TA_LEFT, firstLineIndent=0, leftIndent=18, bulletIndent=4, bulletFontName="SS", spaceAfter=2),
+    "number": style("Number", alignment=TA_LEFT, firstLineIndent=0, leftIndent=22, bulletIndent=4, bulletFontName="SS", spaceAfter=3),
 }
 
 # ----------------------------------------------------------------------------
@@ -286,17 +325,17 @@ def draw_wrapped(canv, text, x, y_top, width, font="SS", size=9.5, leading=16,
     canv.setFillColor(color)
     lines = []
     cur = ""
-    for ch in text:
-        if ch == "\n":
-            lines.append(cur); cur = ""; continue
-        test = cur + ch
-        if stringWidth(test, font, size) > width and cur:
-            lines.append(cur)
-            cur = ch
+    for tok in _tokens(text):
+        if tok == "\n":
+            lines.append(cur.rstrip()); cur = ""; continue
+        test = cur + tok
+        if stringWidth(test, font, size) > width and cur.strip():
+            lines.append(cur.rstrip())
+            cur = tok.lstrip()
         else:
             cur = test
-    if cur:
-        lines.append(cur)
+    if cur.strip():
+        lines.append(cur.rstrip())
     y = y_top
     for line in lines:
         if align == "center":
@@ -429,9 +468,12 @@ class ChapterOpener(Flowable):
                "第十三章": "13"}.get(self.label, "")
         c.saveState()
         if num:
+            long_title = stringWidth(self.title, "YH-Bold", 26) > 100 * mm
+            size = 58 if long_title else 96
+            y = self.height - (8 * mm if long_title else 22 * mm)
             c.setFillColor(HexColor("#EDE5D6"))
-            c.setFont("YH-Bold", 96)
-            c.drawRightString(self.width, self.height - 22 * mm, num)
+            c.setFont("YH-Bold", size)
+            c.drawRightString(self.width, y, num)
         c.restoreState()
         # label
         c.saveState()
@@ -490,7 +532,7 @@ class PartDivider(Flowable):
         c = self.canv
         c.saveState()
         # background gradient
-        steps = 80
+        steps = 240
         for i in range(steps):
             t = i / (steps - 1)
             c.setFillColor(blend(INK_DARK, INK, t))
@@ -515,14 +557,16 @@ class PartDivider(Flowable):
         c.drawString(22 * mm, PAGE_H - 84 * mm, self.years)
         # epigraph
         c.setFillColor(Color(1, 1, 1, alpha=0.85))
-        draw_wrapped(c, self.epigraph, 22 * mm, PAGE_H - 116 * mm, PAGE_W - 44 * mm,
-                     font="SS-Italic", size=12, leading=22, color=Color(1, 1, 1, alpha=0.88))
+        y = draw_wrapped(c, self.epigraph, 22 * mm, PAGE_H - 116 * mm, PAGE_W - 44 * mm,
+                         font="SS-Italic", size=12, leading=22, color=Color(1, 1, 1, alpha=0.88))
+        source_y = max(64 * mm, y - 4 * mm)
         c.setFillColor(GOLD_LIGHT)
         c.setFont("SS", 8.5)
-        c.drawString(22 * mm, PAGE_H - 158 * mm, self.source)
+        c.drawString(22 * mm, source_y, self.source)
         # intro
+        intro_y = 60 * mm if source_y >= 70 * mm else max(30 * mm, source_y - 10 * mm)
         c.setFillColor(Color(1, 1, 1, alpha=0.72))
-        draw_wrapped(c, self.intro, 22 * mm, PAGE_H - 180 * mm, PAGE_W - 50 * mm,
+        draw_wrapped(c, self.intro, 22 * mm, intro_y, PAGE_W - 50 * mm,
                      font="SS", size=9.5, leading=17, color=Color(1, 1, 1, alpha=0.75))
         # footer mark
         c.setFillColor(GOLD)
@@ -577,7 +621,7 @@ def _label(c, x, y, text, size=7.5, color=GRAY, font="YH", align="left"):
 
 def fig_timeline(c, w, h):
     _frame(c, w, h)
-    pad = 12
+    pad = 24
     y = h * 0.52
     c.setStrokeColor(GOLD)
     c.setLineWidth(1.2)
@@ -626,8 +670,9 @@ def fig_turing(c, w, h):
     by = h - 42
     c.setFillColor(INK)
     c.roundRect(bx, by, 78, 30, 2, fill=1, stroke=0)
-    _label(c, bx + 8, by + 18, "状态表", size=7.5, color=GOLD_LIGHT)
-    _label(c, bx + 8, by + 7, "读入 → 写入 / 移动 / 新状态", size=6.4, color=PAPER)
+    _label(c, bx + 8, by + 21, "状态表", size=7.5, color=GOLD_LIGHT)
+    _label(c, bx + 8, by + 11, "读入 → 写入", size=6.4, color=PAPER)
+    _label(c, bx + 8, by + 3, "移动 / 新状态", size=6.4, color=PAPER)
     c.setStrokeColor(GOLD)
     c.setLineWidth(0.6)
     c.line(hx + 12, tape_y + 10, bx, by + 4)
@@ -637,7 +682,7 @@ def fig_perceptron(c, w, h):
     _frame(c, w, h)
     xs = [w * 0.16, w * 0.16, w * 0.16]
     ys = [h * 0.72, h * 0.50, h * 0.28]
-    labels = ["x₁", "x₂", "x₃"]
+    labels = ["x1", "x2", "x3"]
     for x, y, lab in zip(xs, ys, labels):
         c.setFillColor(PAPER)
         c.setStrokeColor(INK)
@@ -646,7 +691,7 @@ def fig_perceptron(c, w, h):
         _label(c, x, y - 3, lab, size=8, color=INK, align="center")
     # weights
     tx, ty = w * 0.52, h * 0.50
-    for x, y, wt in zip(xs, ys, ["w₁", "w₂", "w₃"]):
+    for x, y, wt in zip(xs, ys, ["w1", "w2", "w3"]):
         c.setStrokeColor(GOLD)
         c.setLineWidth(1.0)
         c.line(x + 10, y, tx - 18, ty)
@@ -747,8 +792,18 @@ def fig_rl(c, w, h):
     p.close()
     c.drawPath(p, fill=1, stroke=0)
     _label(c, cx, cy - 10, "动作", size=7.5, color=INK, align="center")
-    c.line(cx + 43, cy + 31, cx + 78 + 8, cy + 31)
-    _label(c, cx + 70, cy + 38, "状态 / 奖励", size=7.5, color=VERMILION, align="center")
+    # feedback loop: environment -> agent
+    c.setStrokeColor(VERMILION)
+    c.setLineWidth(1.0)
+    c.line(cx + 43, cy + 44, cx + 43, cy + 56)
+    c.line(cx + 43, cy + 56, cx - 43, cy + 56)
+    c.line(cx - 43, cy + 56, cx - 43, cy + 44)
+    c.setFillColor(VERMILION)
+    p = c.beginPath()
+    p.moveTo(cx - 43, cy + 44); p.lineTo(cx - 47, cy + 50); p.lineTo(cx - 39, cy + 50)
+    p.close()
+    c.drawPath(p, fill=1, stroke=0)
+    _label(c, cx, cy + 60, "状态 / 奖励", size=7.5, color=VERMILION, align="center")
     _label(c, 10, 10, "智能体根据奖励调整策略，环境根据动作给出新状态", size=7, color=GRAY)
 
 def fig_transformer(c, w, h):
@@ -820,7 +875,6 @@ def fig_scaling(c, w, h):
     c.setStrokeColor(INK)
     c.setLineWidth(1.4)
     c.drawPath(p1)
-    _label(c, right - 40, bottom + (top - bottom) * 0.78, "训练时计算", size=7.2, color=INK, align="right")
     # curve 2: test-time scaling (steeper, later)
     p2 = c.beginPath()
     for i in range(101):
@@ -834,7 +888,17 @@ def fig_scaling(c, w, h):
     c.setDash(4, 3)
     c.drawPath(p2)
     c.setDash()
-    _label(c, right - 40, bottom + (top - bottom) * 0.90, "测试时计算", size=7.2, color=VERMILION, align="right")
+    # legend above the plot, away from the curves
+    c.setStrokeColor(INK)
+    c.setLineWidth(1.4)
+    c.line(left + 6, top - 4, left + 26, top - 4)
+    _label(c, left + 30, top - 6, "训练时计算", size=7.2, color=INK)
+    c.setStrokeColor(VERMILION)
+    c.setLineWidth(1.4)
+    c.setDash(4, 3)
+    c.line(left + 6, top - 18, left + 26, top - 18)
+    c.setDash()
+    _label(c, left + 30, top - 20, "测试时计算", size=7.2, color=VERMILION)
 
 FIGURES = {
     "timeline": (fig_timeline, 62 * mm),
@@ -842,7 +906,7 @@ FIGURES = {
     "perceptron": (fig_perceptron, 55 * mm),
     "winters": (fig_winters, 58 * mm),
     "alexnet": (fig_alexnet, 55 * mm),
-    "rl": (fig_rl, 55 * mm),
+    "rl": (fig_rl, 48 * mm),
     "transformer": (fig_transformer, 60 * mm),
     "rlhf": (fig_rlhf, 48 * mm),
     "scaling": (fig_scaling, 58 * mm),
@@ -899,11 +963,11 @@ def draw_paper(c, doc):
 
 def draw_front_footer(c, doc):
     page = c.getPageNumber()
-    if page <= 2:
+    if page <= 5:
         return
     c.saveState()
     c.setFont("SS", 9)
-    c.setFillColor(LIGHT_GRAY)
+    c.setFillColor(HexColor("#8A8378"))
     c.drawCentredString(PAGE_W / 2, 11 * mm, str(page))
     c.restoreState()
 
@@ -911,8 +975,8 @@ def draw_body_footer(c, doc):
     page = c.getPageNumber()
     c.saveState()
     if page != doc.chapter_start_page:
-        c.setFont("YH", 7.4)
-        c.setFillColor(GRAY)
+        c.setFont("YH", 8)
+        c.setFillColor(HexColor("#4F4A42"))
         if page % 2 == 0:
             header = BOOK_TITLE
             c.drawString(MARGIN_L, PAGE_H - 13.5 * mm, header)
@@ -923,14 +987,14 @@ def draw_body_footer(c, doc):
         c.setLineWidth(0.4)
         c.line(MARGIN_L, PAGE_H - 16 * mm, PAGE_W - MARGIN_R, PAGE_H - 16 * mm)
     c.setFont("SS", 9)
-    c.setFillColor(LIGHT_GRAY)
+    c.setFillColor(HexColor("#8A8378"))
     c.drawCentredString(PAGE_W / 2, 11 * mm, str(page))
     c.restoreState()
 
 def draw_cover(c, doc):
     c.saveState()
     # gradient background
-    steps = 120
+    steps = 400
     for i in range(steps):
         t = i / (steps - 1)
         c.setFillColor(blend(HexColor("#08131E"), HexColor("#1B3550"), t))
@@ -1159,30 +1223,40 @@ def make_table(rows, col_widths=None):
     body = data[1:]
     if col_widths is None:
         if ncols == 2:
-            first = 38 * mm if header and header[0] == "人物" else 32 * mm
+            first = 45 * mm if header and header[0] == "人物" else 32 * mm
             col_widths = [first, CONTENT_W - first]
+        elif ncols == 4 and header and header[0] == "模型":
+            col_widths = [32 * mm, 22 * mm, 28 * mm, CONTENT_W - 82 * mm]
         else:
             col_widths = [CONTENT_W / ncols] * ncols
-    table_data = [[Paragraph(inline(c), S["table_head"]) for c in header]]
+    compact = len(body) >= 20
+    fs = 7.9 if compact else 8.3
+    lead = 12.0 if compact else 13.2
+    pad = 3 if compact else 4
+    head_style = ParagraphStyle("TableHeadLocal", parent=S["table_head"], fontSize=fs + 0.1, leading=lead)
+    body_style = ParagraphStyle("TableBodyLocal", parent=S["table"], fontSize=fs, leading=lead)
+    table_data = [[Paragraph(inline(c), head_style) for c in header]]
     for r in body:
-        table_data.append([Paragraph(inline(c), S["table"]) for c in r])
+        table_data.append([Paragraph(inline(c), body_style) for c in r])
     t = LongTable(table_data, colWidths=col_widths, repeatRows=1, hAlign="LEFT")
     t.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), INK),
         ("TEXTCOLOR", (0, 0), (-1, 0), PAPER),
         ("FONTNAME", (0, 0), (-1, 0), "YH-Bold"),
-        ("FONTSIZE", (0, 0), (-1, 0), 8.2),
         ("FONTNAME", (0, 1), (-1, -1), "SS"),
-        ("FONTSIZE", (0, 1), (-1, -1), 8.3),
-        ("LEADING", (0, 0), (-1, -1), 13.2),
+        ("FONTSIZE", (0, 0), (-1, -1), fs),
+        ("LEADING", (0, 0), (-1, -1), lead),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), pad),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), pad),
         ("LEFTPADDING", (0, 0), (-1, -1), 5),
         ("RIGHTPADDING", (0, 0), (-1, -1), 5),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [PAPER, HexColor("#F6F0E4")]),
         ("GRID", (0, 0), (-1, -1), 0.35, RULE),
     ]))
+    if header and header[0] == "模型":
+        cap = Paragraph("表 10-1 代表性大语言模型", S["caption"])
+        return KeepTogether([cap, t])
     return t
 
 def blocks_to_flowables(blocks, prefix="", toc_sections=False):
@@ -1256,24 +1330,24 @@ PARTS = [
     dict(num="一", title="符号的雄心", years="远古—1974",
          epigraph="我们基于这样一个猜想：学习的每一个方面，或智能的任何其他特征，原则上都可以被如此精确地描述，以至于可以制造一台机器来模拟它。",
          source="——达特茅斯会议提案，1955",
-         intro="从神话到逻辑，从图灵机到达特茅斯，人类试图把智能写成规则。"),
+         intro="第一次押注：符号。从神话到逻辑，从图灵机到达特茅斯，人类试图把智能写成规则。"),
     dict(num="二", title="知识的工程", years="1974—1993",
          epigraph="知识就是力量。",
          source="——弗朗西斯·培根",
-         intro="专家系统让 AI 第一次赚钱，也让人们看到规则的极限。"),
+         intro="这不是新的押注，而是符号押注的工程化极限：专家系统让 AI 第一次赚钱，也让人们看到规则的极限。"),
     dict(num="三", title="学习的胜利", years="1993—2017",
          epigraph="经验是最好的老师。",
          source="——谚语",
-         intro="数据、算力、算法汇合，机器从经验中学会感知和决策。"),
+         intro="第二次押注：学习。数据、算力、算法汇合，机器从经验中学会感知和决策。"),
     dict(num="四", title="规模的信仰", years="2017—2026",
          epigraph="More is different.",
          source="——菲利普·安德森，1972",
-         intro="当规模本身成为方法，AI 从语言走向行动，也从实验室走向社会。"),
+         intro="第三次押注：规模；第四次押注——具身——正在发生。当规模本身成为方法，AI 从语言走向行动，也从实验室走向社会。"),
 ]
 
 CHAPTERS = [
-    dict(file="00-序章.md", part=None, label="序章", title="机器能思考吗？", subtitle="一个问题的三次回答",
-         lead="从图灵的模仿游戏出发，看人工智能如何用三种假设回答同一个问题。"),
+    dict(file="00-序章.md", part=None, label="序章", title="机器能思考吗？", subtitle="一个问题的四次押注",
+         lead="从图灵的模仿游戏出发，看人工智能如何用四次押注回答同一个问题。"),
     dict(file="01-从神话到机器.md", part=0, label="第一章", title="从神话到机器", subtitle="智能的古老梦想",
          lead="在计算机出现之前，人类已经在用神话、机械和逻辑，预演人造智能。"),
     dict(file="02-计算的边界.md", part=0, label="第二章", title="计算的边界", subtitle="图灵、哥德尔与“会思考的机器”",
@@ -1400,6 +1474,7 @@ def build():
     story.extend(front_matter())
     story.append(NextPageTemplate("front"))
     story.extend(toc_page())
+    story.append(NextPageTemplate("body"))
 
     current_part = None
     for ch in CHAPTERS:
